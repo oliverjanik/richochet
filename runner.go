@@ -1,9 +1,9 @@
 package ricochet
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 )
 
@@ -14,8 +14,10 @@ type TestFunc func(r *Ricochet)
 
 // Suite contains multiple tests
 type Suite struct {
-	name  string
-	tests map[string]TestFunc
+	name    string
+	tests   map[string]TestFunc
+	baseURL *url.URL
+	token   string
 }
 
 // NewSuite creates new test suite
@@ -28,6 +30,21 @@ func NewSuite(name string) *Suite {
 	return s
 }
 
+// BaseURL sets base URL for following operations
+func (s *Suite) BaseURL(baseURL string) *Suite {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		panic("Error parsing base URL" + err.Error())
+	}
+
+	s.baseURL = u
+	return s
+}
+
+type oauthResult struct {
+	AccessToken string `json:"access_token"`
+}
+
 // OAuth sets up credential
 func (s *Suite) OAuth(endpoint, client, secret, username, password string) *Suite {
 	params := url.Values{}
@@ -38,14 +55,28 @@ func (s *Suite) OAuth(endpoint, client, secret, username, password string) *Suit
 	params.Add("username", username)
 	params.Add("password", password)
 
+	endpoint = combineURL(s.baseURL, endpoint)
 	resp, err := http.PostForm(endpoint, params)
 	if err != nil {
 		fmt.Println("OAuth error:", err)
 		return nil
 	}
 
-	d, _ := httputil.DumpResponse(resp, true)
-	fmt.Println(string(d))
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		panic("OAuth did returned " + resp.Status)
+	}
+
+	d := json.NewDecoder(resp.Body)
+
+	var msg oauthResult
+	err = d.Decode(&msg)
+	if err != nil {
+		panic("Error decoding OAuth response " + err.Error())
+	}
+
+	s.token = msg.AccessToken
 
 	return s
 }
@@ -61,6 +92,9 @@ func (s *Suite) Run() {
 	fmt.Println("Running", s.name)
 	for n, t := range s.tests {
 		fmt.Println("\t", "...", n)
-		t(&Ricochet{})
+		t(&Ricochet{
+			baseURL: s.baseURL,
+			token:   s.token,
+		})
 	}
 }
