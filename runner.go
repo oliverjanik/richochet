@@ -10,21 +10,26 @@ import (
 var suites = make(map[string]*Suite)
 
 // TestFunc is signature for tests
-type TestFunc func(r *Ricochet)
+type TestFunc func(r *R)
 
 // Suite contains multiple tests
 type Suite struct {
 	name    string
-	tests   map[string]TestFunc
+	tests   []test
 	baseURL *url.URL
 	token   string
+	failed  bool
+}
+
+type test struct {
+	name string
+	f    TestFunc
 }
 
 // NewSuite creates new test suite
 func NewSuite(name string) *Suite {
 	s := &Suite{
-		name:  name,
-		tests: make(map[string]TestFunc),
+		name: name,
 	}
 	suites[name] = s
 	return s
@@ -82,17 +87,26 @@ func (s *Suite) OAuth(endpoint, client, secret, username, password string) *Suit
 }
 
 // Test defines a test in a suit
-func (s *Suite) Test(name string, test TestFunc) *Suite {
-	s.tests[name] = test
+func (s *Suite) Test(name string, testFunc TestFunc) *Suite {
+	s.tests = append(s.tests, test{name, testFunc})
 	return s
 }
 
 // Run test suit
 func (s *Suite) Run() {
 	fmt.Println("Running", s.name)
-	for n, t := range s.tests {
-		fmt.Println("\t", "...", n)
-		t(&Ricochet{
+
+	// stop exectution when test fails
+	defer func() {
+		if msg := recover(); msg != nil {
+			fmt.Printf("\t\t Error: %v", msg)
+			s.failed = true
+		}
+	}()
+
+	for _, t := range s.tests {
+		fmt.Println("\t", "...", t.name)
+		t.f(&R{
 			baseURL: s.baseURL,
 			token:   s.token,
 		})
