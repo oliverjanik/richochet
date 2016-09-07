@@ -1,111 +1,56 @@
 package ricochet
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
+	"sync"
 )
 
-var suites = make(map[string]*Suite)
+var (
+	suits []*Suite
+)
 
-// TestFunc is signature for tests
-type TestFunc func(r *R)
+// Run all the Suites
+func Run(suites ...*Suite) {
+	var wg sync.WaitGroup
+	wg.Add(len(suites))
 
-// Suite contains multiple tests
-type Suite struct {
-	name    string
-	tests   []test
-	baseURL *url.URL
-	token   string
-	failed  bool
-}
-
-type test struct {
-	name string
-	f    TestFunc
-}
-
-// NewSuite creates new test suite
-func NewSuite(name string) *Suite {
-	s := &Suite{
-		name: name,
-	}
-	suites[name] = s
-	return s
-}
-
-// BaseURL sets base URL for following operations
-func (s *Suite) BaseURL(baseURL string) *Suite {
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		panic("Error parsing base URL" + err.Error())
+	for _, suite := range suites {
+		runSuite(suite, &wg)
 	}
 
-	s.baseURL = u
-	return s
+	wg.Wait()
 }
 
-type oauthResult struct {
-	AccessToken string `json:"access_token"`
-}
+func runSuite(s *Suite, wg *sync.WaitGroup) {
+	defer wg.Done()
 
-// OAuth sets up credential
-func (s *Suite) OAuth(endpoint, client, secret, username, password string) *Suite {
-	params := url.Values{}
+	var groupWg sync.WaitGroup
+	groupWg.Add(len(s.groups) + 1)
 
-	params.Add("grant_type", "password")
-	params.Add("client_id", client)
-	params.Add("client_secret", secret)
-	params.Add("username", username)
-	params.Add("password", password)
+	// run self
+	runGroup(&s.TestGroup, s, &groupWg)
 
-	endpoint = combineURL(s.baseURL, endpoint)
-	resp, err := http.PostForm(endpoint, params)
-	if err != nil {
-		fmt.Println("OAuth error:", err)
-		return nil
+	for _, g := range s.groups {
+		go runGroup(g, s, &groupWg)
 	}
 
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		panic("OAuth did returned " + resp.Status)
-	}
-
-	d := json.NewDecoder(resp.Body)
-
-	var msg oauthResult
-	err = d.Decode(&msg)
-	if err != nil {
-		panic("Error decoding OAuth response " + err.Error())
-	}
-
-	s.token = msg.AccessToken
-
-	return s
+	groupWg.Wait()
 }
 
-// Test defines a test in a suit
-func (s *Suite) Test(name string, testFunc TestFunc) *Suite {
-	s.tests = append(s.tests, test{name, testFunc})
-	return s
-}
+func runGroup(g *TestGroup, s *Suite, wg *sync.WaitGroup) {
+	fmt.Println(g.indent+"Running", g.name)
 
-// Run test suit
-func (s *Suite) Run() {
-	fmt.Println("Running", s.name)
+	defer wg.Done()
 
-	// stop exectution when test fails
 	defer func() {
 		if msg := recover(); msg != nil {
-			fmt.Printf("\t\t Error: %v", msg)
-			s.failed = true
+			fmt.Printf(g.indent+"\t\tError: %v", msg)
+			g.failed = true
 		}
 	}()
 
-	for _, t := range s.tests {
-		fmt.Println("\t", "...", t.name)
+	for _, t := range g.tests {
+		fmt.Println(g.indent+"\t", "...", t.name)
 		t.f(&R{
 			baseURL: s.baseURL,
 			token:   s.token,

@@ -29,6 +29,11 @@ func (r *R) Post(url string, data interface{}) *Response {
 	return r.send("POST", url, data)
 }
 
+// Put performs a Put request
+func (r *R) Put(url string, data interface{}) *Response {
+	return r.send("PUT", url, data)
+}
+
 // Delete sends delete request to given url
 func (r *R) Delete(url string) *Response {
 	return r.send("DELETE", url, nil)
