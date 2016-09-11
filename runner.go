@@ -15,7 +15,7 @@ func Run(suites ...*Suite) {
 	wg.Add(len(suites))
 
 	for _, suite := range suites {
-		runSuite(suite, &wg)
+		go runSuite(suite, &wg)
 	}
 
 	wg.Wait()
@@ -23,6 +23,8 @@ func Run(suites ...*Suite) {
 
 func runSuite(s *Suite, wg *sync.WaitGroup) {
 	defer wg.Done()
+
+	s.authenticate()
 
 	var groupWg sync.WaitGroup
 	groupWg.Add(len(s.groups) + 1)
@@ -52,6 +54,7 @@ func runGroup(g *TestGroup, s *Suite, wg *sync.WaitGroup) {
 	for _, t := range g.tests {
 		fmt.Println(g.indent+"\t", "...", t.name)
 		t.f(&R{
+			suite:   s,
 			baseURL: s.baseURL,
 			token:   s.token,
 		})

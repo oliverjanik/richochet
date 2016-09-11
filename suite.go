@@ -24,6 +24,15 @@ type Suite struct {
 	groups  []*TestGroup
 	baseURL *url.URL
 	token   string
+	oauth   *oauth
+}
+
+type oauth struct {
+	endpoint     string
+	clientID     string
+	clientSecret string
+	username     string
+	password     string
 }
 
 type test struct {
@@ -65,36 +74,13 @@ type oauthResult struct {
 
 // OAuth sets up credential
 func (s *Suite) OAuth(endpoint, client, secret, username, password string) *Suite {
-	params := url.Values{}
-
-	params.Add("grant_type", "password")
-	params.Add("client_id", client)
-	params.Add("client_secret", secret)
-	params.Add("username", username)
-	params.Add("password", password)
-
-	endpoint = combineURL(s.baseURL, endpoint)
-	resp, err := http.PostForm(endpoint, params)
-	if err != nil {
-		fmt.Println("OAuth error:", err)
-		return nil
+	s.oauth = &oauth{
+		endpoint:     endpoint,
+		clientID:     client,
+		clientSecret: secret,
+		username:     username,
+		password:     password,
 	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		panic("OAuth did returned " + resp.Status)
-	}
-
-	d := json.NewDecoder(resp.Body)
-
-	var msg oauthResult
-	err = d.Decode(&msg)
-	if err != nil {
-		panic("Error decoding OAuth response " + err.Error())
-	}
-
-	s.token = msg.AccessToken
 
 	return s
 }
@@ -115,4 +101,41 @@ func (s *Suite) Group(group *TestGroup) *Suite {
 func (g *TestGroup) Test(name string, testFunc TestFunc) *TestGroup {
 	g.tests = append(g.tests, test{name, testFunc})
 	return g
+}
+
+func (s *Suite) authenticate() {
+	if s.oauth == nil {
+		return
+	}
+
+	params := url.Values{}
+
+	params.Add("grant_type", "password")
+	params.Add("client_id", s.oauth.clientID)
+	params.Add("client_secret", s.oauth.clientSecret)
+	params.Add("username", s.oauth.username)
+	params.Add("password", s.oauth.password)
+
+	endpoint := combineURL(s.baseURL, s.oauth.endpoint)
+	resp, err := http.PostForm(endpoint, params)
+	if err != nil {
+		fmt.Println("OAuth error:", err)
+		return
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		panic("OAuth did returned " + resp.Status)
+	}
+
+	d := json.NewDecoder(resp.Body)
+
+	var msg oauthResult
+	err = d.Decode(&msg)
+	if err != nil {
+		panic("Error decoding OAuth response " + err.Error())
+	}
+
+	s.token = msg.AccessToken
 }
