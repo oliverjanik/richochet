@@ -25,6 +25,7 @@ type Suite struct {
 	baseURL *url.URL
 	token   string
 	oauth   *oauth
+	headers map[string]string
 }
 
 type oauth struct {
@@ -81,6 +82,13 @@ func (s *Suite) OAuth(endpoint, client, secret, username, password string) *Suit
 		username:     username,
 		password:     password,
 	}
+
+	return s
+}
+
+// Headers sets default headers
+func (s *Suite) Headers(headers map[string]string) *Suite {
+	s.headers = headers
 
 	return s
 }

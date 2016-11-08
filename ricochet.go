@@ -83,6 +83,11 @@ func (r *R) send(method string, url string, data interface{}) *Response {
 	req.Header.Set("Authorization", "Bearer "+r.token)
 	req.Header.Set("Accept", "application/json")
 
+	// add default headers
+	for h, v := range r.suite.headers {
+		req.Header.Set(h, v)
+	}
+
 	if data != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
