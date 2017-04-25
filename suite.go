@@ -92,7 +92,7 @@ func (s *Suite) SetHeader(key string, value string) *Suite {
 func (s *Suite) CreateR() *R {
 	return &R{
 		baseURL: s.baseURL,
-		header:  s.header,
+		Header:  s.header,
 	}
 }
 

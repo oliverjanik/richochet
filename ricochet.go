@@ -15,7 +15,7 @@ import (
 // R executes http calls and provides asserts
 type R struct {
 	baseURL *url.URL
-	header  http.Header
+	Header  http.Header
 }
 
 // Get performs http GET request
@@ -63,7 +63,7 @@ func (r *R) send(method string, url string, data interface{}) *Response {
 	}
 
 	// apply headers from parent
-	for k, v := range r.header {
+	for k, v := range r.Header {
 		req.Header[k] = v
 	}
 

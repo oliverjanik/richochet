@@ -61,7 +61,7 @@ func runGroup(g *TestGroup, s *Suite, wg *sync.WaitGroup) {
 		fmt.Println(g.indent+"\t", "...", t.name)
 		t.f(&R{
 			baseURL: s.baseURL,
-			header:  s.header,
+			Header:  s.header,
 		})
 	}
 }
