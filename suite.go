@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // TestFunc is signature for tests
 type TestFunc func(r *R)
+
+// SuiteFunc is signature for setup/teardown
+type SuiteFunc func(s *Suite)
 
 // TestGroup represents tests the will run sequentially in parallel to other groups
 type TestGroup struct {
@@ -21,19 +25,11 @@ type TestGroup struct {
 // Suite contains multiple tests
 type Suite struct {
 	TestGroup
-	groups  []*TestGroup
-	baseURL *url.URL
-	token   string
-	oauth   *oauth
-	headers map[string]string
-}
-
-type oauth struct {
-	endpoint     string
-	clientID     string
-	clientSecret string
-	username     string
-	password     string
+	groups   []*TestGroup
+	baseURL  *url.URL
+	header   http.Header
+	setUp    SuiteFunc
+	tearDown SuiteFunc
 }
 
 type test struct {
@@ -58,6 +54,18 @@ func NewGroup(name string) *TestGroup {
 	}
 }
 
+// SetUp records a setup funcion
+func (s *Suite) SetUp(f SuiteFunc) *Suite {
+	s.setUp = f
+	return s
+}
+
+// TearDown records a teardown function
+func (s *Suite) TearDown(f SuiteFunc) *Suite {
+	s.tearDown = f
+	return s
+}
+
 // BaseURL sets base URL for following operations
 func (s *Suite) BaseURL(baseURL string) *Suite {
 	u, err := url.Parse(baseURL)
@@ -69,26 +77,69 @@ func (s *Suite) BaseURL(baseURL string) *Suite {
 	return s
 }
 
+// SetHeader sets header for every future request
+func (s *Suite) SetHeader(key string, value string) *Suite {
+	if s.header == nil {
+		s.header = make(http.Header)
+	}
+
+	s.header.Set(key, value)
+
+	return s
+}
+
+// CreateR creates an instace of R
+func (s *Suite) CreateR() *R {
+	return &R{
+		baseURL: s.baseURL,
+		header:  s.header,
+	}
+}
+
 type oauthResult struct {
 	AccessToken string `json:"access_token"`
 }
 
 // OAuth sets up credential
 func (s *Suite) OAuth(endpoint, client, secret, username, password string) *Suite {
-	s.oauth = &oauth{
-		endpoint:     endpoint,
-		clientID:     client,
-		clientSecret: secret,
-		username:     username,
-		password:     password,
+	params := url.Values{}
+
+	params.Add("grant_type", "password")
+	params.Add("client_id", client)
+	params.Add("client_secret", secret)
+	params.Add("username", username)
+	params.Add("password", password)
+
+	endpoint = combineURL(s.baseURL, endpoint)
+
+	r, _ := http.NewRequest("POST", endpoint, strings.NewReader(params.Encode()))
+	for k, v := range s.header {
+		r.Header[k] = v
 	}
 
-	return s
-}
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-// Headers sets default headers
-func (s *Suite) Headers(headers map[string]string) *Suite {
-	s.headers = headers
+	resp, err := http.DefaultClient.Do(r)
+	if err != nil {
+		fmt.Println("OAuth error:", err)
+		return nil
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		panic("OAuth did returned " + resp.Status)
+	}
+
+	d := json.NewDecoder(resp.Body)
+
+	var msg oauthResult
+	err = d.Decode(&msg)
+	if err != nil {
+		panic("Error decoding OAuth response " + err.Error())
+	}
+
+	s.SetHeader("Authorization", "Bearer "+msg.AccessToken)
 
 	return s
 }
@@ -109,41 +160,4 @@ func (s *Suite) Group(group *TestGroup) *Suite {
 func (g *TestGroup) Test(name string, testFunc TestFunc) *TestGroup {
 	g.tests = append(g.tests, test{name, testFunc})
 	return g
-}
-
-func (s *Suite) authenticate() {
-	if s.oauth == nil {
-		return
-	}
-
-	params := url.Values{}
-
-	params.Add("grant_type", "password")
-	params.Add("client_id", s.oauth.clientID)
-	params.Add("client_secret", s.oauth.clientSecret)
-	params.Add("username", s.oauth.username)
-	params.Add("password", s.oauth.password)
-
-	endpoint := combineURL(s.baseURL, s.oauth.endpoint)
-	resp, err := http.PostForm(endpoint, params)
-	if err != nil {
-		fmt.Println("OAuth error:", err)
-		return
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		panic("OAuth did returned " + resp.Status)
-	}
-
-	d := json.NewDecoder(resp.Body)
-
-	var msg oauthResult
-	err = d.Decode(&msg)
-	if err != nil {
-		panic("Error decoding OAuth response " + err.Error())
-	}
-
-	s.token = msg.AccessToken
 }

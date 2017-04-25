@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
-	"path"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/oliverjanik/ricochet/j"
@@ -17,8 +15,7 @@ import (
 // R executes http calls and provides asserts
 type R struct {
 	baseURL *url.URL
-	suite   *Suite
-	token   string
+	header  http.Header
 }
 
 // Get performs http GET request
@@ -41,27 +38,6 @@ func (r *R) Delete(url string) *Response {
 	return r.send("DELETE", url, nil)
 }
 
-// Oauth calls OAUTH endpoint as defined in the suite with new username and pwd
-func (r *R) Oauth(username, password string) *Response {
-	params := url.Values{}
-
-	params.Add("grant_type", "password")
-	params.Add("client_id", r.suite.oauth.clientID)
-	params.Add("client_secret", r.suite.oauth.clientSecret)
-	params.Add("username", username)
-	params.Add("password", password)
-
-	endpoint := combineURL(r.baseURL, r.suite.oauth.endpoint)
-	resp, err := http.PostForm(endpoint, params)
-	if err != nil {
-		r.Fail("oauth", endpoint, "failed:", err)
-	}
-
-	return &Response{
-		resp,
-	}
-}
-
 func (r *R) send(method string, url string, data interface{}) *Response {
 	url = combineURL(r.baseURL, url)
 
@@ -80,16 +56,15 @@ func (r *R) send(method string, url string, data interface{}) *Response {
 		r.Fail("Error preparing request:", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+r.token)
 	req.Header.Set("Accept", "application/json")
-
-	// add default headers
-	for h, v := range r.suite.headers {
-		req.Header.Set(h, v)
-	}
 
 	if data != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+
+	// apply headers from parent
+	for k, v := range r.header {
+		req.Header[k] = v
 	}
 
 	resp, err := http.DefaultClient.Do(req)
@@ -113,26 +88,13 @@ func combineURL(base *url.URL, relative string) string {
 		return relative
 	}
 
-	if relParsed, err := url.Parse(relative); err == nil && relParsed.IsAbs() {
-		return relative
-	}
-
-	copy := *base
-
-	copy.Path = path.Join(copy.Path, relative)
-
-	return copy.String()
+	return base.String() + "/" + relative
 }
 
 // AssertSuccess tests for successful status code between 200 and 300 exclusive
 func (r *R) AssertSuccess(resp *Response) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var body string
-		if buf, err := ioutil.ReadAll(resp.Body); err == nil {
-			body = string(buf)
-		}
-
-		r.Fail("Expected Success, was", resp.StatusCode, body)
+		r.Fail("Expected Success, was", resp.StatusCode)
 	}
 }
 
